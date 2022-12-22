@@ -14,6 +14,14 @@ def initialize_document():
 
 # The operator class
 class Database:
+    # Need to enforce a singleton on the database,
+    # since the dataframe it holds must be consistent across
+    # the subsystem classes.
+    def __new__(cls):
+        if not hasattr(cls,'instance'):
+            cls.instance = super(Database,cls).__new__(cls)
+        return cls.instance
+
     def __init__(self):
         self.dataframe = pd.read_csv('applications.csv')
 
@@ -24,7 +32,7 @@ class Database:
     def append_entry(self,name,quantity):
         date = datetime.now().strftime('%d/%m/%Y')
         columns = ['Company','Status','Quantity','Date']
-        input_row = pd.DataFrame([[name,'Applied',quantity,date]],columns = columns)
+        input_row = pd.DataFrame([[name,'Applied',int(quantity),date]],columns = columns)
         self.dataframe = pd.concat([self.dataframe,input_row])
         self.commit()
 
@@ -40,8 +48,9 @@ class Database:
     def jobcount_check(self):
         date = datetime.now().strftime('%d/%m/%Y')
         found_data = self.dataframe[self.dataframe['Date'] == date]
-        print("Applications today = ",found_data.shape[0])
-        print("So far, you have a total of",self.dataframe.shape[0],"applications!")
+        print("Verbose applications today",found_data)
+        print("Applications today = ",found_data['Quantity'].sum())
+        print("So far, you have a total of",self.dataframe['Quantity'].sum(),"applications!")
 
 # The create subsystem, handles entries
 class Create:
