@@ -3,16 +3,45 @@
 # csv that's highly optimized by personal preference.
 
 import pandas as pd
+import numpy as np
+import os
 import sys
 from datetime import datetime
 
-# A one-time initialization when the user passes the --new arg
-def initialize_document():
-    columns = ['Company','Status','Quantity','Date']
-    dataframe = pd.DataFrame(columns=columns)
-    dataframe.to_csv('applications.csv',index=False)
+# A bunch of one-off command line arg functions.
+class AdminTools:
+    # A one-time initialization when the user passes the new arg
+    def initialize_document(self):
+        columns = ['Company','Status','Quantity','Date']
+        dataframe = pd.DataFrame(columns=columns)
+        if 'applications.csv' in os.listdir():
+            print("Initialization failed, applications.csv is currently already initialized.")
+        else:
+            dataframe.to_csv('applications.csv',index=False)
+    
+    # A cleanup in case the user feels like there's way too many rows
+    # and calls the clean arg.
+    # By design decisions, we've made it so only applications on the same
+    # day to the same company get aggregated, because otherwise, it leads
+    # to a dishonest job count. If the user wants to flatten, they can do so here.
+    def aggregate(self):
+        dataframe = pd.read_csv('applications.csv')
+        dataframe = dataframe.groupby(['Company','Status'],as_index=False).agg({'Quantity':np.sum,'Date':np.max})
+        dataframe = dataframe.sort_values(by='Date')
+        dataframe.to_csv("applications.csv",index=False)
+    
+    # When the user uses the help arg or enters an arg that's not in the list
+    # of args, print this out.
+    def help(self):
+        print("Commands list:\n1. new -> In case you're just starting the program for the first time.\n2. clean -> In case you're trying to aggregate an existing document.")
+    
+    # Tell the user their arg was invalid and show them what the valid args are.
+    def default(self):
+        print("Invalid command!\nList of valid commands:")
+        help()
 
-# The operator class
+
+# The operator class, singleton.
 class Database:
     # Need to enforce a singleton on the database,
     # since the dataframe it holds must be consistent across
@@ -26,14 +55,21 @@ class Database:
         self.dataframe = pd.read_csv('applications.csv')
 
     def commit(self):
-        self.dataframe.to_csv('applications.csv',index=False)
-    
+        self.dataframe.to_csv('applications.csv',index=False)  
     
     def append_entry(self,name,quantity):
         date = datetime.now().strftime('%d/%m/%Y')
         columns = ['Company','Status','Quantity','Date']
-        input_row = pd.DataFrame([[name,'Applied',int(quantity),date]],columns = columns)
-        self.dataframe = pd.concat([self.dataframe,input_row])
+        found_data = self.dataframe[self.dataframe['Company'] == name]
+
+        # We only want to aggregate applications done today, everything else
+        # is a new entry. If the user wants aggregations done on all data,
+        # they can call clean. This is to ensure an honest count of applications.
+        if found_data['Quantity'].sum() == 0 or found_data['Date'].max() != date:
+            input_row = pd.DataFrame([[name,'Applied',int(quantity),date]],columns = columns)
+            self.dataframe = pd.concat([self.dataframe,input_row])
+        else:
+            self.dataframe.loc[self.dataframe['Company']==name,'Quantity'] += quantity
         self.commit()
 
     def update_entry(self,name,status):
@@ -48,11 +84,13 @@ class Database:
     def jobcount_check(self):
         date = datetime.now().strftime('%d/%m/%Y')
         found_data = self.dataframe[self.dataframe['Date'] == date]
-        print("Verbose applications today",found_data)
+        if found_data['Quantity'].sum() != 0:
+            print("Verbose applications today\n",found_data)
         print("Applications today = ",found_data['Quantity'].sum())
         print("So far, you have a total of",self.dataframe['Quantity'].sum(),"applications!")
 
-# The create subsystem, handles entries
+
+# The create subsystem, handles entries.
 class Create:
     def __init__(self):
         self.database = Database()
@@ -74,7 +112,8 @@ class Create:
                 [name,quantity] = [input_data,1]
             self.database.append_entry(name,quantity)
 
-# The update subsystem, handles updations
+
+# The update subsystem, handles updations.
 class Update:
     def __init__(self):
         self.database = Database()
@@ -84,7 +123,8 @@ class Update:
         [name,status] = input().split(',')
         self.database.update_entry(name,status)
 
-# The select subsystem, handles search and count queries
+
+# The select subsystem, handles search and count queries.
 class Select:
     def __init__(self):
         self.database = Database()
@@ -96,6 +136,7 @@ class Select:
     
     def count(self):
         self.database.jobcount_check()
+
 
 # The overlying facade, abstracts each subsystem and the DB
 # from view.
@@ -117,17 +158,36 @@ class Facade:
             self._select_subsystem.select()
         else:
             # We kinda lie to the user. If they enter more than one
-            # character, we say that this was probably an entry op.
+            # character, we assume that this was probably an entry op.
             # So we rapid-fire a special entry to the DB.
             if len(choice) > 1:
                 self._create_subsystem.entry(choice,1)
             else:
                 sys.exit()
 
+
+# The facade for the arg panel. Abstracts AdminTools from view.
+class AdminFacade:
+    def __init__(self):
+        self._admin_subsystem = AdminTools()
+    
+    def operation(self,arg):
+        if arg == 'new':
+            self._admin_subsystem.initialize_document()
+        elif arg == 'clean':
+            self._admin_subsystem.aggregate()
+        elif arg == 'help':
+            self._admin_subsystem.help()
+        else:
+            self._admin_subsystem.default()
+
+
 # The main routine, runs every time main.py is executed.
 if(__name__ == '__main__'):
-    if(len(sys.argv) > 1 and sys.argv[1] == 'new'):
-        initialize_document()
-    facade_object = Facade()
-    while True:
-        facade_object.operation()
+    if(len(sys.argv) > 1):
+        facade_object = AdminFacade()
+        facade_object.operation(sys.argv[1])
+    else:
+        facade_object = Facade()
+        while True:
+            facade_object.operation()
