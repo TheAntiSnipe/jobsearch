@@ -38,7 +38,7 @@ class AdminTools:
     # Tell the user their arg was invalid and show them what the valid args are.
     def default(self):
         print("Invalid command!\nList of valid commands:")
-        help()
+        self.help()
 
 
 # The operator class, singleton.
