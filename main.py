@@ -7,6 +7,7 @@ import numpy as np
 import os
 import sys
 from datetime import datetime
+from tabulate import tabulate
 
 # A bunch of one-off command line arg functions.
 class AdminTools:
@@ -79,13 +80,14 @@ class Database:
     def search(self,name):
         found_data = self.dataframe[self.dataframe['Company'] == name]
         print("This is what came up:")
-        print(found_data)
+        print(tabulate(found_data,headers='keys',tablefmt="psql",showindex=False))
     
     def jobcount_check(self):
         date = datetime.now().strftime('%d/%m/%Y')
         found_data = self.dataframe[self.dataframe['Date'] == date]
         if found_data['Quantity'].sum() != 0:
-            print("Verbose applications today\n",found_data)
+            print("Verbose applications today")
+            print(tabulate(found_data,headers='keys',tablefmt="psql",showindex=False))
         print("Applications today = ",found_data['Quantity'].sum())
         print("So far, you have a total of",self.dataframe['Quantity'].sum(),"applications!")
 
