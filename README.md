@@ -2,10 +2,12 @@
 
 This project is, again, partly design pattern practice and mostly just something I wrote to make my life easier.
 
-- On first run, just type in `python main.py new`
+- On first run, just type in `python main.py new`. If you mess up and do it while applications.csv still exists, don't worry, it'll deny the overwrite.
 
-- On subsequent runs, just go `python main.py`
+- On subsequent runs, just go `python main.py`.
 
 - Other than that, there's quite a few quick-entry features:
   - You can disobey the menu, and if you enter more than one keystroke while in the main menu, the program assumes you wanted to make another application.
   - Application quantities default to one, so if you're only applying for one position, just type the company name.
+
+- There's also a utility to flatten the CSV so that jobs with the same company get grouped and the max date is chosen as the aggregation. This makes the application count of the present day dishonest in case you applied to one of the affected companies today, though, so make sure you understand that. The command is `python main.py clean`.
