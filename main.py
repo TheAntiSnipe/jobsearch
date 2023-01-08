@@ -8,10 +8,32 @@ import os
 import sys
 from datetime import datetime
 from tabulate import tabulate
+import sqlite3
+from sqlite3 import Error
+
+# A singleton class for an SQLite connection. Returns a Connection
+# object when create_connection is called. The same object is returned
+# on subsequent create_connection calls.
+class Sqlite3Connector:
+    def __new__(cls):
+        if not hasattr(cls,'instance'):
+            cls.instance = super(Sqlite3Connector,cls).__new__(cls)
+        return cls.instance
+    
+    def create_connection():
+        connection = None
+        try:
+            connection = sqlite3.connect("applications.sqlite")
+        except Error as e:
+            print(f"The error '{e}' occurred!")
+        return connection
+
 
 # A bunch of one-off command line arg functions.
 class AdminTools:
-    # A one-time initialization when the user passes the new arg
+
+    # A one-time initialization when the user passes the new arg.
+    # Fails if the CSV file is already present.
     def initialize_document(self):
         columns = ['Company','Status','Quantity','Date']
         dataframe = pd.DataFrame(columns=columns)
@@ -27,14 +49,32 @@ class AdminTools:
     # to a dishonest job count. If the user wants to flatten, they can do so here.
     def aggregate(self):
         dataframe = pd.read_csv('applications.csv')
+        print("Condensing",dataframe.shape[0],"rows of input data.")
         dataframe = dataframe.groupby(['Company','Status'],as_index=False).agg({'Quantity':np.sum,'Date':np.max})
         dataframe = dataframe.sort_values(by='Date')
+        print("Condensation complete! Data condensed to",dataframe.shape[0],"rows!")
         dataframe.to_csv("applications.csv",index=False)
     
+    # Always called after aggregate. This is the function that makes an SQLite database
+    # from the CSV file. Note that the CSV file is necessary in order to make a DB.
+    # Fails if a database is already present.
+    def transpile(self):
+        dataframe = pd.read_csv('applications.csv')
+        connection = Sqlite3Connector.create_connection()
+        try:
+            dataframe.to_sql("Jobs",connection,if_exists='fail',index = False)
+            print("Write successful! Database created: applications.sqlite.")
+            test_sql_write = pd.read_sql_query("SELECT * FROM Jobs",connection)
+            print("Testing write by printing a small sample of data:")
+            print(tabulate(test_sql_write.head(),headers='keys',tablefmt="psql",showindex=False))
+        except ValueError:
+            print("Write unsuccessful, a SQLite3 database file already exists in this directory. Delete to proceed.")
+        connection.close()
+
     # When the user uses the help arg or enters an arg that's not in the list
     # of args, print this out.
     def help(self):
-        print("Commands list:\n1. new -> In case you're just starting the program for the first time.\n2. clean -> In case you're trying to aggregate an existing document.")
+        print("Commands list:\n1. new -> In case you're just starting the program for the first time.\n2. clean -> In case you're trying to aggregate an existing document.\n3. tosql -> In case you want to convert the csv file to an SQLite3 DB.\n4. csv -> In case your input file is applications.csv.\n5. sql -> In case your input file is applications.sqlite.")
     
     # Tell the user their arg was invalid and show them what the valid args are.
     def default(self):
@@ -47,46 +87,105 @@ class Database:
     # Need to enforce a singleton on the database,
     # since the dataframe it holds must be consistent across
     # the subsystem classes.
-    def __new__(cls):
+    def __new__(cls,type):
         if not hasattr(cls,'instance'):
             cls.instance = super(Database,cls).__new__(cls)
         return cls.instance
 
-    def __init__(self):
-        self.dataframe = pd.read_csv('applications.csv')
-
-    def commit(self):
-        self.dataframe.to_csv('applications.csv',index=False)  
+    # Initializes the dataframe from the CSV file or the SQLite database.
+    # In case of an SQLite database, connects to it using SqliteConnector.create_connection().
+    # Also handles date formatting so that date comparisons occur the right way.
+    def __init__(self,type):
+        self.connection = None
+        self.new_entries = pd.DataFrame(columns = ['Company','Status','Quantity','Date'])
+        self.type = type
+        self.date = pd.to_datetime(datetime.now().strftime('%Y-%m-%d'),format="%Y-%m-%d")
+        if self.is_csv(type):
+            self.dataframe = pd.read_csv('applications.csv')
+            for i in self.dataframe.index:
+                self.dataframe.loc[i,'Date'] = pd.to_datetime(self.dataframe.loc[i,'Date'],format="%Y-%m-%d %H:%M:%S")
+        else:
+            self.connection = Sqlite3Connector.create_connection()
+            self.dataframe = pd.read_sql_query("SELECT * FROM Jobs",self.connection)
+            for i in self.dataframe.index:
+                self.dataframe.loc[i,'Date'] = pd.to_datetime(self.dataframe.loc[i,'Date'],format="%Y-%m-%d %H:%M:%S")
     
+    # This checks whether the user passed the 
+    # csv arg or the sql arg. Important to ensure
+    # dual functionality.
+    def is_csv(self,type):
+        if type == 'csv':
+            return True
+        else:
+            return False
+
+    # Regularly commits entries to the data file, whether it's SQLite or CSV.
+    # In case of CSV, the "replace" flag means a simple append operation, otherwise
+    # it means we changed status or something (which cannot be done on a single-row
+    # basis since CSV is simply a flat file).
+    # In case of SQLite, everything is a query operation, and we never need
+    # to dump the entire dataframe into the SQLite file.
+    def commit(self,replace = False,status_replace = False,value=None,company = None,status = None):
+        if self.is_csv(self.type):
+            if replace:
+                # Standard entry
+                self.new_entries.to_csv('applications.csv',mode =  'a',index=False,header=False)
+            else:
+                # Updating quantity/status
+                self.dataframe.to_csv('applications.csv',index=False)
+        else:
+            # Updating quantity
+            if replace:
+                query = "UPDATE Jobs SET Quantity = Quantity + "+str(value)+" WHERE Company = \'"+company+"\' AND Date = \'"+str(self.date)+"\'"
+                self.connection.cursor().execute(query)
+            else:
+                # Updating status
+                if status_replace:
+                    query = "UPDATE Jobs SET Status = \'"+status+"\' WHERE Company = \'"+company+"\'"
+                    self.connection.cursor().execute(query)
+                else:
+                    # Standard entry
+                    self.new_entries.to_sql("Jobs",self.connection,if_exists='append',index = False)
+            self.connection.commit()
+        # In any case, empty the "new entries" section
+        self.new_entries = pd.DataFrame(columns = ['Company','Status','Quantity','Date'])
+
+    # Appends new entries to the database.
     def append_entry(self,name,quantity):
-        date = datetime.now().strftime('%d/%m/%Y')
         columns = ['Company','Status','Quantity','Date']
         found_data = self.dataframe[self.dataframe['Company'] == name]
 
         # We only want to aggregate applications done today, everything else
         # is a new entry. If the user wants aggregations done on all data,
         # they can call clean. This is to ensure an honest count of applications.
-        if found_data['Quantity'].sum() == 0 or found_data['Date'].max() != date:
-            input_row = pd.DataFrame([[name,'Applied',int(quantity),date]],columns = columns)
+        # found_data['Date'] = pd.to_datetime(found_data['Date'],format="%d/%m/%Y")
+        if found_data['Quantity'].sum() == 0 or found_data['Date'].max() != self.date:
+            input_row = pd.DataFrame([[name,'Applied',int(quantity),self.date]],columns = columns)
             self.dataframe = pd.concat([self.dataframe,input_row])
+            self.new_entries = pd.concat([self.new_entries,input_row])
+            self.commit()
         else:
-            self.dataframe.loc[self.dataframe['Company']==name,'Quantity'] += quantity
-        self.commit()
+            self.dataframe.loc[self.dataframe['Company']==name,'Quantity'] += int(quantity)
+            if self.is_csv(self.type):
+                self.commit()
+            else:
+                self.commit(replace=True,value=quantity,company=name)
 
+    # Status update
     def update_entry(self,name,status):
         self.dataframe.loc[self.dataframe['Company']==name,'Status'] = status
-        self.commit()
+        self.commit(status_replace=True,company=name,status=status)
     
+    # Searching for a company
     def search(self,name):
         found_data = self.dataframe[self.dataframe['Company'] == name]
         print("This is what came up:")
         print(tabulate(found_data,headers='keys',tablefmt="psql",showindex=False))
     
+    # How many jobs today, and how many so far?
     def jobcount_check(self):
-        date = datetime.now().strftime('%d/%m/%Y')
-        found_data = self.dataframe[self.dataframe['Date'] == date]
+        found_data = self.dataframe[self.dataframe['Date'] == self.date]
         if found_data['Quantity'].sum() != 0:
-            print("Verbose applications today")
             print(tabulate(found_data,headers='keys',tablefmt="psql",showindex=False))
         print("Applications today = ",found_data['Quantity'].sum())
         print("So far, you have a total of",self.dataframe['Quantity'].sum(),"applications!")
@@ -94,8 +193,8 @@ class Database:
 
 # The create subsystem, handles entries.
 class Create:
-    def __init__(self):
-        self.database = Database()
+    def __init__(self,type):
+        self.database = Database(type)
 
     # The create query operates in either a GUI
     # fashion or a rapid-fire fashion depending on
@@ -117,8 +216,8 @@ class Create:
 
 # The update subsystem, handles updations.
 class Update:
-    def __init__(self):
-        self.database = Database()
+    def __init__(self,type):
+        self.database = Database(type)
     
     def update(self):
         print('Enter company name followed by status update')
@@ -128,8 +227,8 @@ class Update:
 
 # The select subsystem, handles search and count queries.
 class Select:
-    def __init__(self):
-        self.database = Database()
+    def __init__(self,type):
+        self.database = Database(type)
     
     def select(self):
         print('Enter company name')
@@ -143,10 +242,10 @@ class Select:
 # The overlying facade, abstracts each subsystem and the DB
 # from view.
 class Facade:
-    def __init__(self):
-        self._create_subsystem = Create()
-        self._update_subsystem = Update()
-        self._select_subsystem = Select()
+    def __init__(self,type):
+        self._create_subsystem = Create(type)
+        self._update_subsystem = Update(type)
+        self._select_subsystem = Select(type)
     
     def operation(self):
         self._select_subsystem.count()
@@ -177,9 +276,15 @@ class AdminFacade:
         if arg == 'new':
             self._admin_subsystem.initialize_document()
         elif arg == 'clean':
+            # Coalesces the CSV file, lowering size.
             self._admin_subsystem.aggregate()
         elif arg == 'help':
             self._admin_subsystem.help()
+        elif arg == 'tosql':
+            # tosql coalesces the database before adding
+            # it to the SQLite file.
+            self._admin_subsystem.aggregate()
+            self._admin_subsystem.transpile()
         else:
             self._admin_subsystem.default()
 
@@ -187,9 +292,13 @@ class AdminFacade:
 # The main routine, runs every time main.py is executed.
 if(__name__ == '__main__'):
     if(len(sys.argv) > 1):
-        facade_object = AdminFacade()
-        facade_object.operation(sys.argv[1])
+        if sys.argv[1] != 'csv' and sys.argv[1] != 'sql':
+            facade_object = AdminFacade()
+            facade_object.operation(sys.argv[1])
+        else:
+            facade_object = Facade(sys.argv[1])
+            while True:
+                facade_object.operation()
     else:
-        facade_object = Facade()
-        while True:
-            facade_object.operation()
+        AdminFacade().operation("invalid")
+        
