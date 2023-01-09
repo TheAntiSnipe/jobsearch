@@ -71,10 +71,20 @@ class AdminTools:
             print("Write unsuccessful, a SQLite3 database file already exists in this directory. Delete to proceed.")
         connection.close()
 
+    # Called if you want to revert from an SQLite database.
+    def untranspile(self):
+        connection = Sqlite3Connector.create_connection()
+        dataframe = pd.read_sql_query("SELECT * FROM Jobs",connection)
+        print("Extracted data! Sample:")
+        print(dataframe.head)
+        for i in dataframe.index:
+            dataframe.loc[i,'Date'] = pd.to_datetime(dataframe.loc[i,'Date'],format="%Y-%m-%d %H:%M:%S")
+        dataframe.to_csv("applications.csv",index=False)
+        print("Write successful!")
     # When the user uses the help arg or enters an arg that's not in the list
     # of args, print this out.
     def help(self):
-        print("Commands list:\n1. new -> In case you're just starting the program for the first time.\n2. clean -> In case you're trying to aggregate an existing document.\n3. tosql -> In case you want to convert the csv file to an SQLite3 DB.\n4. csv -> In case your input file is applications.csv.\n5. sql -> In case your input file is applications.sqlite.")
+        print("Commands list:\n1. new -> In case you're just starting the program for the first time.\n2. clean -> In case you're trying to aggregate an existing document.\n3. tosql -> In case you want to convert the csv file to an SQLite3 DB.\n4. tocsv -> In case you want to convert the SQLite3 DB to a csv file.\n5. csv -> In case your input file is applications.csv.\n6. sql -> In case your input file is applications.sqlite.")
     
     # Tell the user their arg was invalid and show them what the valid args are.
     def default(self):
@@ -285,6 +295,8 @@ class AdminFacade:
             # it to the SQLite file.
             self._admin_subsystem.aggregate()
             self._admin_subsystem.transpile()
+        elif arg == 'tocsv':
+            self._admin_subsystem.untranspile()
         else:
             self._admin_subsystem.default()
 

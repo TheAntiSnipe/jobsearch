@@ -13,3 +13,5 @@ This project is, again, partly design pattern practice and mostly just something
 - There's also a utility to flatten the CSV so that jobs with the same company get grouped and the max date is chosen as the aggregation. This makes the application count of the present day dishonest in case you applied to one of the affected companies today, though, so make sure you understand that. The command is `python main.py clean`.
 
 - We now have SQLite functionality as well! Provided you already have the CSV file, you can call `python main.py tosql`. This coalesces the CSV file and seeds an SQLite database with it. To then use the database in SQL mode, simply call `python main.py sql`!
+
+- There's also a functionality to take an SQLite database as an input and parse it to a csv format. Just call `python main.py tocsv` and it'll do it for you! Might be handy to correct small mistakes to do something like `python main.py tocsv` -> Change the csv manually -> Delete the SQLite file -> `python main.py tosql`.
