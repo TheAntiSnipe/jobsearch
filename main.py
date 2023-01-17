@@ -107,6 +107,8 @@ class Database:
     # Also handles date formatting so that date comparisons occur the right way.
     def __init__(self,type):
         self.connection = None
+        self.jobcount_today = None
+        self.total_jobcount = None
         self.new_entries = pd.DataFrame(columns = ['Company','Status','Quantity','Date'])
         self.type = type
         self.date = pd.to_datetime(datetime.now().strftime('%Y-%m-%d'),format="%Y-%m-%d")
@@ -119,7 +121,7 @@ class Database:
             self.dataframe = pd.read_sql_query("SELECT * FROM Jobs",self.connection)
             for i in self.dataframe.index:
                 self.dataframe.loc[i,'Date'] = pd.to_datetime(self.dataframe.loc[i,'Date'],format="%Y-%m-%d %H:%M:%S")
-    
+        self.total_jobcount = self.dataframe['Quantity'].sum()
     # This checks whether the user passed the 
     # csv arg or the sql arg. Important to ensure
     # dual functionality.
@@ -180,6 +182,7 @@ class Database:
                 self.commit()
             else:
                 self.commit(replace=True,value=quantity,company=name)
+        self.jobcount_today += quantity
 
     # Status update
     def update_entry(self,name,status):
@@ -195,10 +198,12 @@ class Database:
     # How many jobs today, and how many so far?
     def jobcount_check(self):
         found_data = self.dataframe[self.dataframe['Date'] == self.date]
-        if found_data['Quantity'].sum() != 0:
+        if self.jobcount_today == None:
+            self.jobcount_today = found_data['Quantity'].sum()
+        if self.jobcount_today != 0:
             print(tabulate(found_data,headers='keys',tablefmt="psql",showindex=False))
-        print("Applications today = ",found_data['Quantity'].sum())
-        print("So far, you have a total of",self.dataframe['Quantity'].sum(),"applications!")
+        print("Applications today = ",self.jobcount_today)
+        print("So far, you have a total of",self.jobcount_today+self.total_jobcount,"applications!")
 
 
 # The create subsystem, handles entries.
