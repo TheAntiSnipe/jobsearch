@@ -121,7 +121,9 @@ class Database:
             self.dataframe = pd.read_sql_query("SELECT * FROM Jobs",self.connection)
             for i in self.dataframe.index:
                 self.dataframe.loc[i,'Date'] = pd.to_datetime(self.dataframe.loc[i,'Date'],format="%Y-%m-%d %H:%M:%S")
-        self.total_jobcount = self.dataframe['Quantity'].sum()
+        todays_data = self.dataframe[self.dataframe['Date'] == self.date]
+        self.jobcount_today = todays_data['Quantity'].sum()
+        self.total_jobcount = self.dataframe['Quantity'].sum() - self.jobcount_today
     # This checks whether the user passed the 
     # csv arg or the sql arg. Important to ensure
     # dual functionality.
@@ -198,8 +200,6 @@ class Database:
     # How many jobs today, and how many so far?
     def jobcount_check(self):
         found_data = self.dataframe[self.dataframe['Date'] == self.date]
-        if self.jobcount_today == None:
-            self.jobcount_today = found_data['Quantity'].sum()
         if self.jobcount_today != 0:
             print(tabulate(found_data,headers='keys',tablefmt="psql",showindex=False))
         print("Applications today = ",self.jobcount_today)
