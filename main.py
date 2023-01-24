@@ -222,6 +222,7 @@ class Create:
             input_data = input()
             try:
                 [name,quantity] = input_data.split(',')
+                quantity = int(quantity)
             except ValueError:
                 # If the user enters only the name, we
                 # select the quantity for them.
