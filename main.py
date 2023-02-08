@@ -139,7 +139,7 @@ class Database:
     # basis since CSV is simply a flat file).
     # In case of SQLite, everything is a query operation, and we never need
     # to dump the entire dataframe into the SQLite file.
-    def commit(self,replace = False,status_replace = False,value=None,company = None,status = None):
+    def commit(self,replace = False,status_replace = False,value=None,company = None,status = None,choice='s'):
         if self.is_csv(self.type):
             if replace:
                 # Standard entry
@@ -155,8 +155,12 @@ class Database:
             else:
                 # Updating status
                 if status_replace:
-                    query = "UPDATE Jobs SET Status = \'"+status+"\' WHERE Company = \'"+company+"\'"
-                    self.connection.cursor().execute(query)
+                    if choice == 's':
+                        query = "UPDATE Jobs SET Status = \'"+status+"\' WHERE Company = \'"+company+"\'"
+                        self.connection.cursor().execute(query)
+                    else:
+                        query = "UPDATE Jobs SET Company = \'"+status+"\' WHERE Company = \'"+company+"\'"
+                        self.connection.cursor().execute(query)
                 else:
                     # Standard entry
                     self.new_entries.to_sql("Jobs",self.connection,if_exists='append',index = False)
@@ -187,9 +191,12 @@ class Database:
         self.jobcount_today += quantity
 
     # Status update
-    def update_entry(self,name,status):
-        self.dataframe.loc[self.dataframe['Company']==name,'Status'] = status
-        self.commit(status_replace=True,company=name,status=status)
+    def update_entry(self,name,status,choice):
+        if choice == 's':
+            self.dataframe.loc[self.dataframe['Company']==name,'Status'] = status
+        elif choice == 'c':
+            self.dataframe.loc[self.dataframe['Company']==name,'Company'] = status
+        self.commit(status_replace=True,company=name,status=status,choice=choice)
     
     # Searching for a company
     def search(self,name):
@@ -236,9 +243,9 @@ class Update:
         self.database = Database(type)
     
     def update(self):
-        print('Enter company name followed by status update')
-        [name,status] = input().split(',')
-        self.database.update_entry(name,status)
+        choice = input("What do you want to update? Type s if status, c if company name.\n")
+        [name,status] = input('Enter company name followed by a comma, then the status/name update.\n').split(',')
+        self.database.update_entry(name,status,choice)
 
 
 # The select subsystem, handles search and count queries.
@@ -297,9 +304,6 @@ class AdminFacade:
         elif arg == 'help':
             self._admin_subsystem.help()
         elif arg == 'tosql':
-            # tosql coalesces the database before adding
-            # it to the SQLite file.
-            self._admin_subsystem.aggregate()
             self._admin_subsystem.transpile()
         elif arg == 'tocsv':
             self._admin_subsystem.untranspile()
